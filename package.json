@@ -1,0 +1,47 @@
+{
+  "name": "devvkit",
+  "version": "0.1.0",
+  "description": "CLI for scaffolding opinionated starter kits. First target: Next.js.",
+  "type": "module",
+  "bin": {
+    "devvkit": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "format": "prettier --write ."
+  },
+  "keywords": [
+    "cli",
+    "scaffold",
+    "starter-kit",
+    "nextjs",
+    "generator"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "commander": "^12.1.0",
+    "execa": "^9.5.1",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
