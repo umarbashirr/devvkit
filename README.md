@@ -1,10 +1,8 @@
 # devvkit
 
-CLI for scaffolding opinionated starter kits. First (and currently only) target: **Next.js**.
-
-It wraps the official `create-next-app` for the base, then layers selected feature
-modules on top — so the base stays current with Next.js defaults and devvkit only
-owns the extras.
+CLI for scaffolding opinionated starter kits. It wraps official scaffolders
+(`create-next-app`, `create-vite`) for the base, then layers selected modules
+(backend, auth, database, libraries, CI) on top.
 
 ## Usage
 
@@ -12,53 +10,81 @@ owns the extras.
 # interactive
 npx devvkit my-app
 
-# non-interactive (defaults, tuned by flags)
-npx devvkit my-app --yes --pm pnpm --db drizzle --auth
+# non-interactive (flags + defaults)
+npx devvkit my-app --yes --framework react-vite-ts --backend express-ts \
+  --layout monorepo --monorepo-tool turborepo --auth better-auth --db drizzle \
+  --libraries prettier,husky,editorconfig --ci
 ```
 
-### Options
+## Prompt flow
 
-| Flag | Description |
-|------|-------------|
-| `[name]` | Project directory name (prompted if omitted) |
-| `--pm <manager>` | `pnpm` \| `npm` \| `yarn` \| `bun` |
-| `--db <orm>` | `none` \| `drizzle` \| `prisma` |
-| `--styling` / `--no-styling` | Tailwind + shadcn/ui |
-| `--auth` / `--no-auth` | Better Auth (email + password) |
-| `--tooling` / `--no-tooling` | Prettier + Husky + lint-staged + GitHub Actions CI |
-| `--eslint` / `--no-eslint` | ESLint |
-| `-y, --yes` | Skip prompts; use defaults (overridable by flags) |
-
-## Feature modules
-
-| Module | What it does |
-|--------|--------------|
-| **styling** | `--tailwind` via create-next-app, then `shadcn init` + button/card/input |
-| **database** | Drizzle or Prisma scaffold against SQLite (client, schema, `db:*` scripts) |
-| **auth** | Better Auth wired with email/password + standalone SQLite, Next.js route handler |
-| **tooling** | Prettier config, Husky `pre-commit` running lint-staged, CI workflow |
-
-Each module is a `FeatureModule` in `src/features/`. Add a new one and register it
-in `src/features/index.ts` to grow the kit. New kit targets (beyond Next.js) can
-follow the same registry pattern.
-
-## Develop
-
-```bash
-pnpm install
-pnpm build        # bundle to dist/ via tsup
-pnpm typecheck
-node dist/index.js my-app   # run locally
 ```
+1. Package manager   pnpm · npm · yarn · bun
+2. Framework         React+Vite (TS/JS) · Vue+Vite (TS/JS)* · Next.js · Next.js Full Stack
+3. Backend           (skipped for Next.js Full Stack)  None · Express (JS) · Express (TS)
+4. Repo layout       (only with a separate backend)    Monorepo · Flat · Multi-repo
+      └ if Monorepo  Turborepo · pnpm workspaces · Nx*
+5. Auth              (only if a server exists)          None · Better Auth
+6. Database          (only if a server exists)          None · Drizzle · Prisma
+7. Libraries         Prettier · Husky+lint-staged · EditorConfig
+8. CI                GitHub Actions yes/no
+                                                        * = stub (selectable, "coming soon")
+```
+
+"Server" = the Next.js app (Full Stack) or the Express api. With no server,
+auth & database are skipped.
+
+## Layouts
+
+| Layout | Structure | Repos |
+|--------|-----------|-------|
+| single | one app at root (no separate backend) | 1 |
+| monorepo | `apps/web` + `apps/api` (Turborepo or pnpm workspaces) | 1 |
+| flat | `client/` + `server/` under a light root | 1 |
+| multi | `<name>-web` + `<name>-api` side by side | 2 |
+
+## What each module does
+
+- **frameworks** — `create-next-app` (TS, App Router, Tailwind) or `create-vite` (react / react-ts)
+- **backends** — Express (JS/TS) from scratch: `/health`, CORS, dev/build/start scripts; mounts Better Auth when selected
+- **auth** — Better Auth (email/password) + standalone SQLite; Next route handler or Express node handler
+- **database** — Drizzle or Prisma against SQLite (client, schema, `db:*` scripts). Prisma pinned to v6.
+- **libraries** — Prettier, Husky + lint-staged, EditorConfig — per repo root
+- **ci** — GitHub Actions workflow per repo (install + lint/build when present)
+
+## Flags
+
+`--pm`, `--framework`, `--backend`, `--layout`, `--monorepo-tool`, `--auth`,
+`--db`, `--libraries` (csv), `--ci`, `-y/--yes`. Run `devvkit --help` for values.
 
 ## Architecture
 
 ```
 src/
-  index.ts          bin entry (shebang added by tsup)
-  cli.ts            commander flags + clack prompts -> ProjectContext -> pipeline
-  scaffold.ts       create-next-app wrapper
-  types.ts          ProjectContext + FeatureModule contracts
-  features/         one file per module + registry
-  utils/            exec (execa), pm (package-manager commands), fs (file/json helpers)
+  index.ts      bin entry (shebang added by tsup)
+  cli.ts        commander flags + clack prompts -> ProjectContext
+  pipeline.ts   root -> framework -> backend -> features -> native rebuild -> git
+  layout.ts     resolve dirs; scaffold workspace/flat root; package roots
+  types.ts      ProjectContext + capability helpers
+  frameworks/   next, react-vite, vue-vite (stub) + registry
+  backends/     express + registry
+  features/     auth, database, libraries, ci
+  utils/        exec (execa), pm (commands+detect), fs (file/json), native (pnpm builds)
 ```
+
+Add a framework in `src/frameworks/`, a backend in `src/backends/`, or a module
+in `src/features/`, then register it — the registries are the extension points.
+
+## Develop
+
+```bash
+pnpm install
+pnpm build          # bundle to dist/ via tsup
+pnpm typecheck
+node dist/index.js my-app --yes --framework next-fullstack   # run locally
+```
+
+## Notes
+
+- `create-next-app` initializes its own git commit; devvkit adds a second commit with the layered files.
+- pnpm 10 blocks dependency build scripts by default — devvkit allowlists and rebuilds native deps (better-sqlite3, esbuild) at the workspace root.

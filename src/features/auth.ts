@@ -1,16 +1,16 @@
 import { randomBytes } from "node:crypto";
 
-import type { FeatureModule } from "../types.js";
+import type { ProjectContext, ServerTarget } from "../types.js";
 import { run } from "../utils/exec.js";
 import { addCmd } from "../utils/pm.js";
 import { appendLines, writeText } from "../utils/fs.js";
-import { allowNativeBuilds } from "../utils/native.js";
+import { markNativeBuild } from "../utils/native.js";
 
-const AUTH_TS = `import { betterAuth } from "better-auth";
+const authConfig = `import { betterAuth } from "better-auth";
 import Database from "better-sqlite3";
 
-// Standalone SQLite for a zero-config start. To use your ORM instead, swap
-// \`database\` for the matching Better Auth adapter (drizzleAdapter / prismaAdapter):
+// Standalone SQLite for a zero-config start. Swap \`database\` for the matching
+// adapter (drizzleAdapter / prismaAdapter) to share your ORM connection:
 // https://www.better-auth.com/docs/adapters
 export const auth = betterAuth({
   database: new Database("./auth.db"),
@@ -18,39 +18,45 @@ export const auth = betterAuth({
 });
 `;
 
-const AUTH_CLIENT_TS = `import { createAuthClient } from "better-auth/react";
+const AUTH_CLIENT = `import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient();
 export const { signIn, signUp, signOut, useSession } = authClient;
 `;
 
-const ROUTE_TS = `import { auth } from "@/lib/auth";
+const NEXT_ROUTE = `import { auth } from "@/lib/auth";
 import { toNextJsHandler } from "better-auth/next-js";
 
 export const { GET, POST } = toNextJsHandler(auth);
 `;
 
-/** Wire up Better Auth with email/password and a standalone SQLite store. */
-export const authModule: FeatureModule = {
-  id: "auth",
-  title: "Better Auth",
-  enabled: (ctx) => ctx.features.auth,
-  async apply(ctx) {
-    const pm = ctx.packageManager;
-    await run(addCmd(pm, ["better-auth", "better-sqlite3"]), { cwd: ctx.dir });
-    await run(addCmd(pm, ["@types/better-sqlite3"], true), { cwd: ctx.dir });
-    await allowNativeBuilds(ctx, ["better-sqlite3"]);
+/** Wire Better Auth (email/password + SQLite) into the server target. */
+export async function applyAuth(ctx: ProjectContext): Promise<void> {
+  if (ctx.auth !== "better-auth" || !ctx.server) return;
+  const target: ServerTarget = ctx.server;
+  const pm = ctx.packageManager;
+  const ext = target.language;
 
-    await writeText(ctx.dir, "src/lib/auth.ts", AUTH_TS);
-    await writeText(ctx.dir, "src/lib/auth-client.ts", AUTH_CLIENT_TS);
-    await writeText(ctx.dir, "src/app/api/auth/[...all]/route.ts", ROUTE_TS);
+  await run(addCmd(pm, ["better-auth", "better-sqlite3"]), { cwd: target.dir });
+  if (target.language === "ts") {
+    await run(addCmd(pm, ["@types/better-sqlite3"], true), { cwd: target.dir });
+  }
+  markNativeBuild(ctx, ["better-sqlite3"]);
 
-    const secret = randomBytes(32).toString("hex");
-    await appendLines(ctx.dir, ".env", [
-      "# Better Auth",
-      `BETTER_AUTH_SECRET=${secret}`,
-      "BETTER_AUTH_URL=http://localhost:3000",
-    ]);
-    await appendLines(ctx.dir, ".gitignore", ["", "# Better Auth (local SQLite)", "auth.db"]);
-  },
-};
+  await writeText(target.dir, `src/lib/auth.${ext}`, authConfig);
+
+  if (target.kind === "next") {
+    await writeText(target.dir, "src/lib/auth-client.ts", AUTH_CLIENT);
+    await writeText(target.dir, "src/app/api/auth/[...all]/route.ts", NEXT_ROUTE);
+  }
+  // Express mounts the handler in its generated index (auth-aware scaffolder).
+
+  const secret = randomBytes(32).toString("hex");
+  const url = target.kind === "next" ? "http://localhost:3000" : "http://localhost:4000";
+  await appendLines(target.dir, ".env", [
+    "# Better Auth",
+    `BETTER_AUTH_SECRET=${secret}`,
+    `BETTER_AUTH_URL=${url}`,
+  ]);
+  await appendLines(target.dir, ".gitignore", ["", "# Better Auth (local SQLite)", "auth.db"]);
+}

@@ -23,6 +23,11 @@ export function addCmd(pm: PackageManager, deps: string[], dev = false): string[
   }
 }
 
+/** Command to install all declared dependencies. */
+export function installCmd(pm: PackageManager): string[] {
+  return pm === "npm" ? ["npm", "install"] : [pm, "install"];
+}
+
 /** Command to run a one-off package binary (dlx/npx style). */
 export function dlxCmd(pm: PackageManager, pkgAndArgs: string[]): string[] {
   switch (pm) {
