@@ -52,8 +52,8 @@ export async function runPipeline(ctx: ProjectContext): Promise<void> {
   if (ctx.auth !== "none") {
     await task("Adding Better Auth", () => applyAuth(ctx));
   }
-  if (ctx.db !== "none") {
-    await task(`Adding database (${ctx.db})`, () => applyDatabase(ctx));
+  if (ctx.dbEngine !== "none" && ctx.orm) {
+    await task(`Adding database (${ctx.dbEngine} · ${ctx.orm})`, () => applyDatabase(ctx));
   }
 
   const libs = ctx.libraries;

@@ -25,9 +25,10 @@ npx devvkit my-app --yes --framework react-vite-ts --backend express-ts \
 4. Repo layout       (only with a separate backend)    Monorepo · Flat · Multi-repo
       └ if Monorepo  Turborepo · pnpm workspaces · Nx*
 5. Auth              (only if a server exists)          None · Better Auth
-6. Database          (only if a server exists)          None · Drizzle · Prisma
-7. Libraries         Prettier · Husky+lint-staged · EditorConfig
-8. CI                GitHub Actions yes/no
+6. Database engine   (only if a server exists)          None · SQLite · PostgreSQL · MySQL · MongoDB
+7. ORM               (only if an engine is chosen)      MongoDB → Mongoose · SQL → Drizzle · Prisma · TypeORM
+8. Libraries         Prettier · Husky+lint-staged · EditorConfig
+9. CI                GitHub Actions yes/no
                                                         * = stub (selectable, "coming soon")
 ```
 
@@ -48,14 +49,14 @@ auth & database are skipped.
 - **frameworks** — `create-next-app` (TS, App Router, Tailwind) or `create-vite` (react / react-ts)
 - **backends** — Express (JS/TS) from scratch: `/health`, CORS, dev/build/start scripts; mounts Better Auth when selected
 - **auth** — Better Auth (email/password) + standalone SQLite; Next route handler or Express node handler
-- **database** — Drizzle or Prisma against SQLite (client, schema, `db:*` scripts). Prisma pinned to v6.
+- **database** — two steps: engine then ORM. SQLite / PostgreSQL / MySQL with Drizzle, Prisma, or TypeORM; MongoDB with Mongoose. Generates the right driver, config/schema (or entity/model), client, and `db:*` scripts. Prisma pinned to v6; TypeORM enables decorator metadata in the target's tsconfig.
 - **libraries** — Prettier, Husky + lint-staged, EditorConfig — per repo root
 - **ci** — GitHub Actions workflow per repo (install + lint/build when present)
 
 ## Flags
 
 `--pm`, `--framework`, `--backend`, `--layout`, `--monorepo-tool`, `--auth`,
-`--db`, `--libraries` (csv), `--ci`, `-y/--yes`. Run `devvkit --help` for values.
+`--db` (engine), `--orm`, `--libraries` (csv), `--ci`, `-y/--yes`. Run `devvkit --help` for values.
 
 ## Architecture
 

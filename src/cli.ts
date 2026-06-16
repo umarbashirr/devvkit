@@ -8,10 +8,12 @@ import { runPipeline } from "./pipeline.js";
 import {
   hasSeparateBackend,
   hasServer,
+  ormsForEngine,
   type AuthChoice,
-  type DbChoice,
+  type DbEngine,
   type LayoutId,
   type MonorepoTool,
+  type Orm,
   type PackageManager,
   type ProjectContext,
 } from "./types.js";
@@ -26,13 +28,29 @@ interface CliOptions {
   layout?: LayoutId;
   monorepoTool?: MonorepoTool;
   auth?: AuthChoice;
-  db?: DbChoice;
+  db?: DbEngine;
+  orm?: Orm;
   libraries?: string;
   ci?: boolean;
   yes?: boolean;
 }
 
 const PMS: PackageManager[] = ["pnpm", "npm", "yarn", "bun"];
+
+const ENGINE_OPTIONS: Opt[] = [
+  { value: "none", label: "None" },
+  { value: "sqlite", label: "SQLite", hint: "file" },
+  { value: "postgresql", label: "PostgreSQL" },
+  { value: "mysql", label: "MySQL" },
+  { value: "mongodb", label: "MongoDB" },
+];
+
+const ORM_LABELS: Record<Orm, string> = {
+  drizzle: "Drizzle",
+  prisma: "Prisma",
+  typeorm: "TypeORM",
+  mongoose: "Mongoose",
+};
 
 function onCancel(): never {
   p.cancel("Cancelled.");
@@ -66,7 +84,18 @@ function contextFromFlags(name: string, opts: CliOptions): ProjectContext {
   const framework = fwChoice.selection;
   const backend = beChoice.backend;
   const sep = hasSeparateBackend(framework, backend);
+  const server = hasServer(framework, backend);
   const libs = (opts.libraries ?? "prettier,husky").split(",").map((s) => s.trim());
+
+  const engines: DbEngine[] = ["none", "sqlite", "postgresql", "mysql", "mongodb"];
+  if (opts.db && !engines.includes(opts.db)) fail(`Invalid --db. Options: ${engines.join(", ")}`);
+
+  const dbEngine: DbEngine = server ? (opts.db ?? "none") : "none";
+  const orm: Orm | null =
+    dbEngine === "none" ? null : (opts.orm ?? ormsForEngine(dbEngine)[0] ?? null);
+  if (orm && !ormsForEngine(dbEngine).includes(orm)) {
+    fail(`ORM "${orm}" is not available for ${dbEngine}. Options: ${ormsForEngine(dbEngine).join(", ")}`);
+  }
 
   return {
     name,
@@ -77,8 +106,9 @@ function contextFromFlags(name: string, opts: CliOptions): ProjectContext {
     backendLanguage: beChoice.language,
     layout: sep ? (opts.layout ?? "monorepo") : "single",
     monorepoTool: sep && (opts.layout ?? "monorepo") === "monorepo" ? (opts.monorepoTool ?? "turborepo") : null,
-    auth: hasServer(framework, backend) ? (opts.auth ?? "none") : "none",
-    db: hasServer(framework, backend) ? (opts.db ?? "none") : "none",
+    auth: server ? (opts.auth ?? "none") : "none",
+    dbEngine,
+    orm,
     libraries: {
       prettier: libs.includes("prettier"),
       husky: libs.includes("husky"),
@@ -159,9 +189,10 @@ async function gatherInteractive(name: string, opts: CliOptions): Promise<Projec
 
   const server = hasServer(framework, backend.backend);
 
-  // 5. Auth + 6. Database — only if a server exists
+  // 5. Auth + 6. Database engine + 7. ORM — only if a server exists
   let auth: AuthChoice = "none";
-  let db: DbChoice = "none";
+  let dbEngine: DbEngine = "none";
+  let orm: Orm | null = null;
   if (server) {
     auth = unwrap(
       await p.select({
@@ -172,16 +203,18 @@ async function gatherInteractive(name: string, opts: CliOptions): Promise<Projec
         ],
       }),
     ) as AuthChoice;
-    db = unwrap(
-      await p.select({
-        message: "Database?",
-        options: [
-          { value: "none", label: "None" },
-          { value: "drizzle", label: "Drizzle", hint: "SQLite" },
-          { value: "prisma", label: "Prisma", hint: "SQLite" },
-        ],
-      }),
-    ) as DbChoice;
+
+    dbEngine = unwrap(await selectValue("Database?", ENGINE_OPTIONS)) as DbEngine;
+
+    if (dbEngine !== "none") {
+      const orms = ormsForEngine(dbEngine);
+      orm = unwrap(
+        await selectValue(
+          "ORM?",
+          orms.map((o) => ({ value: o, label: ORM_LABELS[o] })),
+        ),
+      ) as Orm;
+    }
   } else {
     p.log.info(pc.dim("No backend selected — skipping auth & database."));
   }
@@ -213,7 +246,8 @@ async function gatherInteractive(name: string, opts: CliOptions): Promise<Projec
     layout,
     monorepoTool,
     auth,
-    db,
+    dbEngine,
+    orm,
     libraries: {
       prettier: libs.includes("prettier"),
       husky: libs.includes("husky"),
@@ -260,7 +294,11 @@ function summary(ctx: ProjectContext): string {
   if (ctx.layout !== "single")
     lines.push(row("layout", `${ctx.layout}${ctx.monorepoTool ? pc.dim(` · ${ctx.monorepoTool}`) : ""}`));
   lines.push(ctx.auth !== "none" ? row("auth", ctx.auth) : off("auth"));
-  lines.push(ctx.db !== "none" ? row("database", ctx.db) : off("database"));
+  lines.push(
+    ctx.dbEngine !== "none"
+      ? row("database", `${ctx.dbEngine}${ctx.orm ? pc.dim(` · ${ctx.orm}`) : ""}`)
+      : off("database"),
+  );
   lines.push(lib.length ? row("libraries", lib.join(", ")) : off("libraries"));
   lines.push(ctx.ci ? row("ci", "github actions") : off("ci"));
   return lines.join("\n");
@@ -278,7 +316,8 @@ function nextSteps(ctx: ProjectContext): string {
     out.push(step(pc.bold(`cd ${ctx.name}`)));
     out.push(step(dev));
   }
-  if (ctx.db !== "none") out.push(step(`${ctx.packageManager} run db:migrate ${pc.dim("# set up the database")}`));
+  if (ctx.dbEngine !== "none" && ctx.orm !== "mongoose" && ctx.orm !== "typeorm")
+    out.push(step(`${ctx.packageManager} run db:migrate ${pc.dim("# set up the database")}`));
   if (ctx.auth !== "none") out.push(step(pc.dim("review .env (auth secret was generated)")));
   return out.join("\n");
 }
@@ -295,7 +334,8 @@ export async function main(argv: string[]): Promise<void> {
     .option("--layout <value>", "monorepo | flat | multi")
     .option("--monorepo-tool <value>", "turborepo | pnpm | nx")
     .option("--auth <value>", "none | better-auth")
-    .option("--db <value>", "none | drizzle | prisma")
+    .option("--db <engine>", "none | sqlite | postgresql | mysql | mongodb")
+    .option("--orm <value>", "drizzle | prisma | typeorm | mongoose")
     .option("--libraries <csv>", "prettier,husky,editorconfig")
     .option("--ci", "add GitHub Actions CI")
     .option("-y, --yes", "skip prompts; use flags + defaults")

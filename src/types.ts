@@ -14,7 +14,18 @@ export type MonorepoTool = "turborepo" | "nx" | "pnpm";
 
 export type AuthChoice = "none" | "better-auth";
 
-export type DbChoice = "none" | "drizzle" | "prisma";
+/** Database engine. */
+export type DbEngine = "none" | "sqlite" | "postgresql" | "mysql" | "mongodb";
+
+/** ORM / ODM. */
+export type Orm = "drizzle" | "prisma" | "typeorm" | "mongoose";
+
+/** ORMs available for a given engine. Mongo gets Mongoose only; SQL gets the rest. */
+export function ormsForEngine(engine: DbEngine): Orm[] {
+  if (engine === "mongodb") return ["mongoose"];
+  if (engine === "none") return [];
+  return ["drizzle", "prisma", "typeorm"];
+}
 
 export interface FrameworkSelection {
   id: FrameworkId;
@@ -52,7 +63,8 @@ export interface ProjectContext {
   monorepoTool: MonorepoTool | null;
 
   auth: AuthChoice;
-  db: DbChoice;
+  dbEngine: DbEngine;
+  orm: Orm | null;
   libraries: LibrarySelection;
   ci: boolean;
 
